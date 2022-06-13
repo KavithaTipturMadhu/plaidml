@@ -166,12 +166,15 @@ struct GemmLowering {
     if (batches.empty())
       return callSimpleGemm();
 
-    if (batches.size() == 1)
+    if (batches.size() == 1) {
       return callBatchedGemm(batches[0]);
-
-    // There are additional reduction indices
-    // call offset based batch reduce gemm
-    return callBatchedOffsetsGemm();
+    } else {
+      // There are additional reduction indices
+      // call offset based batch reduce gemm
+      // check ainfo strides are equal and binfo strides are equal, call
+      // batchedgemm
+      return callBatchedOffsetsGemm();
+    }
   }
 
   LogicalResult callSimpleGemm() {

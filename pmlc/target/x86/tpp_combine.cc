@@ -26,42 +26,57 @@ namespace stdx = dialect::stdx;
 namespace {
 
 class TppCombineImpl {
-private:
+public:
   bool maybeCaptureTopLevel(AffineParallelOp op) {
     using matchers::m_Any;
-    // Check for unary /binary ops back to back within the affineparallel op
-
     Value *gemmOp = new Value();
-    Value *identityOp = new Value();
-
-    auto opPattern = m_Op<AffineYieldOp>(
-        arith::AtomicRMWKind::assign,
-        m_Op<stdx::ReluOp>(
-            m_Capture(gemmOp, m_Op<pxa::PxaGenericOp>(m_Capture(
-                                  identityOp, m_Op<pxa::PxaGenericOp>())))),
-        m_Any());
-
+    Value *reluOp = new Value();
+    auto opPattern =
+        m_Op<AffineYieldOp>(m_Capture(reluOp, m_Op<pxa::PxaGenericOp>()));
     auto affineYield = op.getBody()->getTerminator();
     if (!matchPattern(affineYield, opPattern)) {
       return false;
     }
-    pxa::PxaGenericOp pxaGemmOp =
-        dyn_cast<pxa::PxaGenericOp>(gemmOp->getDefiningOp());
-    pxa::PxaGenericOp pxaIdentityOp =
-        dyn_cast<pxa::PxaGenericOp>(identityOp->getDefiningOp());
-    if (pxaGemmOp.kernel().str() != "tpp_gemm" ||
-        pxaIdentityOp.kernel().str() != "tpp_identity") {
-      return false;
+    pxa::PxaGenericOp pxaReluOp =
+        dyn_cast<pxa::PxaGenericOp>(reluOp->getDefiningOp());
+    if (pxaReluOp.kernel().str() == "tpp_relu") {
+      auto pxaGemmOp = pxaReluOp.getOperand(0);
+      if (dyn_cast<pxa::PxaGenericOp>(pxaGemmOp.getDefiningOp()) &&
+          dyn_cast<pxa::PxaGenericOp>(pxaGemmOp.getDefiningOp())
+                  .kernel()
+                  .str() == "tpp_gemm") {
+        auto pxaIdOp =
+            dyn_cast<pxa::PxaGenericOp>(pxaGemmOp.getDefiningOp()).outputs()[0];
+        bool identityOp = false;
+        for (auto inst = op.getBody()->begin(); inst != op.getBody()->end();
+             inst++) {
+          // TODO check for broadcast calls: row major
+          if (dyn_cast<pxa::PxaGenericOp>(inst) &&
+              dyn_cast<pxa::PxaGenericOp>(inst).kernel().str() ==
+                  "tpp_identity") {
+            if (&*inst == pxaIdOp.getDefiningOp()) {
+              identityOp = true;
+              break;
+            }
+          }
+        }
+        if (identityOp) {
+          std::cout << "identity op found\n";
+          return true;
+        }
+      }
     }
-    return true;
+    return false;
   }
 };
 } // namespace
 
 struct TppCombinePass : public TppCombineBase<TppCombinePass> {
   void runOnOperation() final {
-    getOperation().walk(
-        [](AffineParallelOp op) { TppCombineImpl combineImpl; });
+    getOperation().walk([](AffineParallelOp op) {
+      TppCombineImpl combineImpl;
+      combineImpl.maybeCaptureTopLevel(op);
+    });
   }
 };
 
