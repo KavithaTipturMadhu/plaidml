@@ -114,7 +114,6 @@ class Model(core.Model):
 
         initTime = 0
         import keras.backend as b
-        print("backend ", b.backend())
         if b.backend() == "plaidml.bridge.keras":
             import plaidml.bridge.keras as keras_bridge
             if keras_bridge.lastExecTimeInMS:

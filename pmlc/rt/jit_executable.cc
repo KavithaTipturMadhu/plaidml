@@ -444,7 +444,8 @@ public:
   ~JitExecutable() {
     if (jitFini) {
       IVLOG(3, "Doing jit fini");
-      rt::initInstrument();
+      // rt::initInstrument();
+
       SmallVector<void *, 1> finiPtrs{initPack};
       jitFini(finiPtrs.data());
       IVLOG(3, "Jit fini complete");
@@ -475,6 +476,9 @@ public:
     rt::initInstrument();
     bindArguments(inputBuffers, outputBuffers);
     jitMain(ptrs.data());
+    device->execTimeInMS = rt::finishInstrument() * 1000;
+    llvm::outs() << llvm::format("duration:%7.6f\n", device->execTimeInMS);
+    rt::initInstrument();
     return device->execTimeInMS;
   }
 
