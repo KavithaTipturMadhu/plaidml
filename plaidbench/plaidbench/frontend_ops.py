@@ -21,7 +21,29 @@ MS_OPS = {
     # need to add strides and possibly dialation if TC is coo "resnetup" : lambda p: conv2d.Conv2d(p, 64, 56, 56, 643)
     "conv2d_odd_sml": lambda p: conv2d.Conv2d(p, 16, 57, 57, 34, 3, 2),
     "conv2d_odd_med": lambda p: conv2d.Conv2d(p, 133, 16, 16, 266, 4, 4),
-    "conv2d_resnet50_med": lambda p: conv2d.Conv2d(p, 256, 14, 14, 1024, 1, 1),
+    "conv2d_resnet50_med0": lambda p: conv2d.Conv2d(p, 4, 224, 224, 64, 7, 7, 2, 2),
+    "conv2d_resnet50_med1": lambda p: conv2d.Conv2d(p, 128, 56, 56, 128, 3, 3, 2, 2),
+    "conv2d_resnet50_med2": lambda p: conv2d.Conv2d(p, 64, 56, 56, 64, 3, 3),
+    "conv2d_resnet50_med3": lambda p: conv2d.Conv2d(p, 256, 56, 56, 512, 1, 1, 2, 2),
+    "conv2d_resnet50_med4": lambda p: conv2d.Conv2d(p, 64, 56, 56, 64, 1, 1),
+    "conv2d_resnet50_med5": lambda p: conv2d.Conv2d(p, 64, 56, 56, 256, 1, 1),
+    "conv2d_resnet50_med6": lambda p: conv2d.Conv2d(p, 256, 56, 56, 64, 1, 1),
+    "conv2d_resnet50_med7": lambda p: conv2d.Conv2d(p, 256, 56, 56, 128, 1, 1),
+    "conv2d_resnet50_med8": lambda p: conv2d.Conv2d(p, 256, 28, 28, 256, 3, 3, 2, 2),
+    "conv2d_resnet50_med9": lambda p: conv2d.Conv2d(p, 128, 28, 28, 128, 3, 3),
+    "conv2d_resnet50_med10": lambda p: conv2d.Conv2d(p, 512, 28, 28, 1024, 1, 1, 2, 2),
+    "conv2d_resnet50_med11": lambda p: conv2d.Conv2d(p, 512, 28, 28, 256, 1, 1),
+    "conv2d_resnet50_med12": lambda p: conv2d.Conv2d(p, 512, 28, 28, 128, 1, 1),
+    "conv2d_resnet50_med13": lambda p: conv2d.Conv2d(p, 128, 28, 28, 512, 1, 1),
+    "conv2d_resnet50_med14": lambda p: conv2d.Conv2d(p, 512, 14, 14, 512, 3, 3, 2, 2),
+    "conv2d_resnet50_med15": lambda p: conv2d.Conv2d(p, 256, 14, 14, 256, 3, 3),
+    "conv2d_resnet50_med16": lambda p: conv2d.Conv2d(p, 1024, 14, 14, 2048, 1, 1, 2, 2),
+    "conv2d_resnet50_med17": lambda p: conv2d.Conv2d(p, 256, 14, 14, 1024, 1, 1),
+    "conv2d_resnet50_med18": lambda p: conv2d.Conv2d(p, 1024, 14, 14, 512, 1, 1),
+    "conv2d_resnet50_med19": lambda p: conv2d.Conv2d(p, 1024, 14, 14, 256, 1, 1),
+    "conv2d_resnet50_med20": lambda p: conv2d.Conv2d(p, 512, 7, 7, 512, 3, 3),
+    "conv2d_resnet50_med21": lambda p: conv2d.Conv2d(p, 512, 7, 7, 2048, 1, 1),
+    "conv2d_resnet50_med22": lambda p: conv2d.Conv2d(p, 2048, 7, 7, 512, 1, 1),
     "dense_odd_sml": lambda p: dense.Dense(p, 122, 98, 179),
     "dense_odd_med": lambda p: dense.Dense(p, 110, 512, 313),
     # need to add fusion support into TVM
@@ -79,19 +101,34 @@ class Model(core.Model):
                     tm = runfunc(loops)
         else:
             tm = runfunc(loops)
-
         if tm:
             res['time'] = tm
         res['flops'] = self.flops
         return (None, res)
 
     def run_plaid(self, loops):
-        stop_watch = core.StopWatch(False)
-        stop_watch.start()
         self.model.predict(x=self.op.get_dataset()[:loops * self.params.batch_size],
                            batch_size=self.params.batch_size)
-        stop_watch.stop()
-        return stop_watch.elapsed()
+        self.model.predict(x=self.op.get_dataset()[:loops * self.params.batch_size],
+                           batch_size=self.params.batch_size)
+
+        initTime = 0
+        import keras.backend as b
+        print("backend ", b.backend())
+        if b.backend() == "plaidml.bridge.keras":
+            import plaidml.bridge.keras as keras_bridge
+            if keras_bridge.lastExecTimeInMS:
+                initTime = keras_bridge.lastExecTimeInMS
+
+        for _ in range(1000):
+            self.model.predict(x=self.op.get_dataset()[:loops * self.params.batch_size],
+                               batch_size=self.params.batch_size)
+        if b.backend() == "plaidml.bridge.keras":
+            import plaidml.bridge.keras as keras_bridge
+            if keras_bridge.lastExecTimeInMS:
+                return (keras_bridge.lastExecTimeInMS - initTime)
+
+        return 0
 
     def run_tc(self, loops):
         import torch
