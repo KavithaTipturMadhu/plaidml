@@ -458,7 +458,7 @@ struct CPUThreadPass : public CPUThreadBase<CPUThreadPass> {
     return std::make_pair(newPloopWithVar, newPloop);
   }
 
-  AffineParallelOp fuseLoops(std::list<AffineParallelOp> loops) {
+  AffineParallelOp fuseLoops(MutableArrayRef<AffineParallelOp> loops) {
     AffineParallelOp innermost = loops.back();
     AffineParallelOp outermost = loops.front();
     AffineMap origUbMap = outermost.upperBoundsMap();
@@ -475,8 +475,7 @@ struct CPUThreadPass : public CPUThreadBase<CPUThreadPass> {
       prev = builder.create<AffineApplyOp>(loc, origUbMap, ubOperands);
     upperBoundSymbols.push_back(prev);
 
-    loops.pop_front();
-    for (AffineParallelOp loop : loops) {
+    for (AffineParallelOp loop : loops.drop_front()) {
       origUbMap = loop.upperBoundsMap();
       ubOperands = loop.getUpperBoundsOperands();
       Value upperBound;
@@ -528,14 +527,13 @@ struct CPUThreadPass : public CPUThreadBase<CPUThreadPass> {
                                builder.getAffineSymbolExpr(0)),
             applyOperands);
       }
-      auto bb = std::prev(itr, 1);
-      replaceAllUsesInRegionWith((&*bb)->getIVs()[0], inductionVariable,
-                                 loops.back().region());
+      auto iv = loops[idx - 1].getIVs()[0];
+      replaceAllUsesInRegionWith(iv, inductionVariable, loops.back().region());
       itr = std::next(itr, 1);
     }
     for (auto loopItr = loops.begin(); loopItr != loops.end(); loopItr++) {
-      (&*loopItr)->setUpperBounds((&*loopItr)->getLowerBoundsOperands(),
-                                  (&*loopItr)->lowerBoundsMap());
+      (&*loopItr)->setUpperBounds((&*loopItr)->getUpperBoundsOperands(),
+                                  (&*loopItr)->upperBoundsMap());
     }
     return outermost;
   }
@@ -608,7 +606,7 @@ struct CPUThreadPass : public CPUThreadBase<CPUThreadPass> {
     for (auto transformation : transformations) {
       std::map<std::string, AffineParallelOp> inductionVarLoopMap;
       for (auto inductionVar : transformation.inductionVars) {
-        std::list<AffineParallelOp> fusionCandidates;
+        std::vector<AffineParallelOp> fusionCandidates;
         std::list<AffineParallelOp> alreadyTraversedOps;
         auto affineParallelOp = inductionVarLabels.begin();
 
@@ -701,6 +699,16 @@ struct CPUThreadPass : public CPUThreadBase<CPUThreadPass> {
                     firstLoop);
               }
             }
+            /*
+            std::vector<AffineParallelOp> fusionOps;
+            if(firstLoopOuter){
+                fusionOps.push_back(firstLoop);
+                fusionOps.push_back(secondLoop);
+            }else{
+                fusionOps.push_back(secondLoop);
+                fusionOps.push_back(firstLoop);
+            }
+            firstLoop = fuseLoops(fusionOps);*/
             setUnitTag(firstLoop, kCpuThreadTag);
             setIntegerTag(firstLoop, "collapse", 2);
           }
@@ -829,7 +837,7 @@ struct CPUThreadPass : public CPUThreadBase<CPUThreadPass> {
           }
         }
       }
-      if (affineGemmOp == NULL) {
+      if (!match) {
         processOp(topAffineOp);
       }
       return WalkResult::skip();
@@ -837,31 +845,32 @@ struct CPUThreadPass : public CPUThreadBase<CPUThreadPass> {
   }
 
   void processOp(AffineParallelOp op) {
-    auto maybeRanges = op.getConstantRanges();
-    if (!maybeRanges) {
-      // Fail if we can't compute the ranges at compile time
-      return;
-    }
-
-    SmallVector<int64_t> strides(op.getNumDims(), 0);
-    if (auto lastWriter =
-            dyn_cast_or_null<PxaReduceOp>(getPrevWriter(op.getResult(0)))) {
-      if (Optional<StrideInfo> si = computeStrideInfo(lastWriter)) {
-        for (BlockArgument arg : op.getIVs()) {
-          strides[arg.getArgNumber()] = si->strides[arg];
+    /*    auto maybeRanges = op.getConstantRanges();
+        if (!maybeRanges) {
+          // Fail if we can't compute the ranges at compile time
+          return;
         }
-      }
-    }
 
-    CostModel model(threads, strides);
-    auto tileSize =
-        findBestTileSize(EvenTilingGenerator(), model, *maybeRanges);
-    // Invert tiling (we want 'threads' on the outer loop
-    for (size_t i = 0; i < tileSize.size(); i++) {
-      tileSize[i] = (*maybeRanges)[i] / tileSize[i];
-    }
-    // Tile and tag
-    performTiling(op, tileSize);
+        SmallVector<int64_t> strides(op.getNumDims(), 0);
+        if (auto lastWriter =
+                dyn_cast_or_null<PxaReduceOp>(getPrevWriter(op.getResult(0)))) {
+          if (Optional<StrideInfo> si = computeStrideInfo(lastWriter)) {
+            for (BlockArgument arg : op.getIVs()) {
+              strides[arg.getArgNumber()] = si->strides[arg];
+            }
+          }
+        }
+
+        CostModel model(threads, strides);
+        auto tileSize =
+            findBestTileSize(EvenTilingGenerator(), model, *maybeRanges);
+        // Invert tiling (we want 'threads' on the outer loop
+        for (size_t i = 0; i < tileSize.size(); i++) {
+          tileSize[i] = (*maybeRanges)[i] / tileSize[i];
+        }
+        // Tile and tag
+        performTiling(op, tileSize);
+      */
     setUnitTag(op, kCpuThreadTag);
   }
 };
